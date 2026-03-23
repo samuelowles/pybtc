@@ -35,25 +35,41 @@ class MarketDiscovery:
         self.config = config
         self.markets: dict[str, Market] = {}
         self._client = httpx.AsyncClient(timeout=15)
+        self._poll_count = 0
 
     async def poll_once(self):
+        self._poll_count += 1
         try:
             url = f"{self.config.GAMMA_API_URL}/markets"
-            params = {"active": "true", "closed": "false", "limit": "100"}
+            params = {
+                "active": "true",
+                "closed": "false",
+                "limit": "500",
+                "tag": "btc",
+            }
             resp = await self._client.get(url, params=params)
             resp.raise_for_status()
             data = resp.json()
 
             if not isinstance(data, list):
+                log.warning(f"Gamma API returned non-list: {type(data).__name__}")
                 return
 
             now = datetime.now(timezone.utc).timestamp() * 1000
             discovered = 0
+            btc_count = 0
+            fivemin_count = 0
+            in_window_count = 0
 
             for m in data:
                 q = (m.get("question") or "").lower()
                 is_btc = "bitcoin" in q or "btc" in q
                 is_5min = "5 minute" in q or "5min" in q or "five minute" in q
+
+                if is_btc:
+                    btc_count += 1
+                if is_btc and is_5min:
+                    fivemin_count += 1
 
                 if not is_btc or not is_5min:
                     continue
@@ -64,6 +80,9 @@ class MarketDiscovery:
 
                 end_ts = datetime.fromisoformat(end_iso.replace("Z", "+00:00")).timestamp() * 1000
                 time_to_close = end_ts - now
+
+                if time_to_close > 0 and time_to_close <= 5 * 60 * 1000:
+                    in_window_count += 1
 
                 if time_to_close <= 0 or time_to_close > 5 * 60 * 1000:
                     continue
@@ -90,8 +109,23 @@ class MarketDiscovery:
             for cid in expired:
                 del self.markets[cid]
 
+            # Always log first 3 polls, then only when markets found
+            if self._poll_count <= 3 or discovered > 0:
+                sample_questions = []
+                if data and self._poll_count <= 3:
+                    sample_questions = [m.get("question", "?")[:80] for m in data[:3]]
+                log.info(
+                    f"Poll #{self._poll_count}: {len(data)} total markets, "
+                    f"{btc_count} BTC, {fivemin_count} 5-min BTC, "
+                    f"{in_window_count} closing within 5min, "
+                    f"{discovered} tradeable. Tracked: {len(self.markets)}"
+                    + (f" | Samples: {sample_questions}" if sample_questions else "")
+                )
+
             if discovered > 0:
-                log.info(f"Found {discovered} active 5-min BTC markets. Total tracked: {len(self.markets)}")
+                for cid, mkt in self.markets.items():
+                    ttc = (mkt.end_time - now) / 1000
+                    log.info(f"  → {mkt.question[:60]} | strike={mkt.strike_price} | closes in {ttc:.0f}s")
 
         except Exception as e:
             log.error(f"Discovery error: {e}")
