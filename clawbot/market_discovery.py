@@ -1,7 +1,7 @@
-import re
+import json
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import httpx
@@ -10,24 +10,27 @@ from .config import Config
 
 log = logging.getLogger("clawbot.discovery")
 
+SLUG_PREFIX = "btc-updown-5m-"
+INTERVAL_SECS = 300  # 5 minutes
+
 
 @dataclass
 class Market:
     condition_id: str
     question: str
-    end_time: float
-    yes_token_id: str
-    no_token_id: str
+    end_time: float      # epoch seconds
+    start_time: float    # epoch seconds
+    yes_token_id: str    # "Up" outcome token
+    no_token_id: str     # "Down" outcome token
     yes_price: float = 0.5
     no_price: float = 0.5
-    strike_price: float = 0.0
+    slug: str = ""
 
 
-def extract_strike_price(question: str) -> float:
-    match = re.search(r"\$?([\d,]+\.?\d*)", question)
-    if match:
-        return float(match.group(1).replace(",", ""))
-    return 0.0
+def _next_boundaries(now_ts: float, count: int = 3) -> list[int]:
+    """Return the next `count` 5-minute boundary timestamps from now."""
+    current_boundary = int(now_ts // INTERVAL_SECS) * INTERVAL_SECS
+    return [current_boundary + (i * INTERVAL_SECS) for i in range(count)]
 
 
 class MarketDiscovery:
@@ -37,101 +40,121 @@ class MarketDiscovery:
         self._client = httpx.AsyncClient(timeout=15)
         self._poll_count = 0
 
-    async def poll_once(self):
-        self._poll_count += 1
+    async def _fetch_event_by_slug(self, slug: str) -> dict | None:
+        url = f"{self.config.GAMMA_API_URL}/events"
+        params = {"slug": slug}
         try:
-            url = f"{self.config.GAMMA_API_URL}/markets"
-            params = {
-                "active": "true",
-                "closed": "false",
-                "limit": "500",
-                "tag": "btc",
-            }
             resp = await self._client.get(url, params=params)
             resp.raise_for_status()
             data = resp.json()
+            if isinstance(data, list) and len(data) > 0:
+                return data[0]
+        except Exception as e:
+            log.debug(f"Slug query failed for {slug}: {e}")
+        return None
 
-            if not isinstance(data, list):
-                log.warning(f"Gamma API returned non-list: {type(data).__name__}")
-                return
+    async def poll_once(self):
+        self._poll_count += 1
+        now = datetime.now(timezone.utc).timestamp()
 
-            now = datetime.now(timezone.utc).timestamp() * 1000
-            discovered = 0
-            btc_count = 0
-            fivemin_count = 0
-            in_window_count = 0
+        # Compute candidate slugs for current + next 2 boundaries
+        boundaries = _next_boundaries(now, count=3)
+        slugs = [f"{SLUG_PREFIX}{ts}" for ts in boundaries]
 
-            for m in data:
-                q = (m.get("question") or "").lower()
-                is_btc = "bitcoin" in q or "btc" in q
-                is_5min = "5 minute" in q or "5min" in q or "five minute" in q
+        discovered = 0
 
-                if is_btc:
-                    btc_count += 1
-                if is_btc and is_5min:
-                    fivemin_count += 1
+        # Fire all slug queries concurrently
+        tasks = [self._fetch_event_by_slug(slug) for slug in slugs]
+        results = await asyncio.gather(*tasks)
 
-                if not is_btc or not is_5min:
-                    continue
+        for slug, event in zip(slugs, results):
+            if event is None:
+                continue
 
-                end_iso = m.get("end_date_iso")
-                if not end_iso:
-                    continue
+            event_markets = event.get("markets", [])
+            if not event_markets:
+                continue
 
-                end_ts = datetime.fromisoformat(end_iso.replace("Z", "+00:00")).timestamp() * 1000
-                time_to_close = end_ts - now
+            m = event_markets[0]
 
-                if time_to_close > 0 and time_to_close <= 5 * 60 * 1000:
-                    in_window_count += 1
+            if not m.get("acceptingOrders"):
+                continue
 
-                if time_to_close <= 0 or time_to_close > 5 * 60 * 1000:
-                    continue
+            cid = m.get("conditionId", "")
+            if cid in self.markets:
+                continue
 
-                tokens = m.get("tokens") or []
-                yes_token = next((t for t in tokens if t.get("outcome") == "Yes"), None)
-                no_token = next((t for t in tokens if t.get("outcome") == "No"), None)
+            # Parse token IDs from clobTokenIds JSON string
+            clob_ids_raw = m.get("clobTokenIds", "[]")
+            try:
+                clob_ids = json.loads(clob_ids_raw) if isinstance(clob_ids_raw, str) else clob_ids_raw
+            except json.JSONDecodeError:
+                clob_ids = []
 
-                if yes_token and no_token:
-                    cid = m.get("condition_id", "")
-                    self.markets[cid] = Market(
-                        condition_id=cid,
-                        question=m.get("question", ""),
-                        end_time=end_ts,
-                        yes_token_id=yes_token.get("token_id", ""),
-                        no_token_id=no_token.get("token_id", ""),
-                        yes_price=float(yes_token.get("price", "0.5")),
-                        no_price=float(no_token.get("price", "0.5")),
-                        strike_price=extract_strike_price(m.get("question", "")),
-                    )
-                    discovered += 1
+            if len(clob_ids) < 2:
+                log.warning(f"Market {slug} has {len(clob_ids)} token IDs, skipping")
+                continue
 
-            expired = [cid for cid, mkt in self.markets.items() if mkt.end_time < now]
-            for cid in expired:
-                del self.markets[cid]
+            # Parse outcome prices
+            prices_raw = m.get("outcomePrices", "[]")
+            try:
+                prices = json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
+            except json.JSONDecodeError:
+                prices = ["0.5", "0.5"]
 
-            # Always log first 3 polls, then only when markets found
-            if self._poll_count <= 3 or discovered > 0:
-                sample_questions = []
-                if data and self._poll_count <= 3:
-                    sample_questions = [m.get("question", "?")[:80] for m in data[:3]]
+            # Parse end and start times
+            end_date = m.get("endDate", "")
+            start_time_str = m.get("eventStartTime", m.get("startDate", ""))
+            try:
+                end_ts = datetime.fromisoformat(end_date.replace("Z", "+00:00")).timestamp()
+            except (ValueError, AttributeError):
+                continue
+
+            try:
+                start_ts = datetime.fromisoformat(start_time_str.replace("Z", "+00:00")).timestamp()
+            except (ValueError, AttributeError):
+                start_ts = end_ts - INTERVAL_SECS
+
+            time_to_close = end_ts - now
+
+            # Only track markets closing within 10 minutes (room for 1 full cycle + buffer)
+            if time_to_close <= 0 or time_to_close > 600:
+                continue
+
+            self.markets[cid] = Market(
+                condition_id=cid,
+                question=m.get("question", event.get("title", "")),
+                end_time=end_ts,
+                start_time=start_ts,
+                yes_token_id=clob_ids[0],  # "Up" token
+                no_token_id=clob_ids[1],   # "Down" token
+                yes_price=float(prices[0]) if len(prices) > 0 else 0.5,
+                no_price=float(prices[1]) if len(prices) > 1 else 0.5,
+                slug=slug,
+            )
+            discovered += 1
+
+        # Purge expired markets
+        expired = [cid for cid, mkt in self.markets.items() if mkt.end_time < now]
+        for cid in expired:
+            del self.markets[cid]
+
+        if self._poll_count <= 5 or discovered > 0:
+            log.info(
+                f"Poll #{self._poll_count}: checked slugs {[s.split('-')[-1] for s in slugs]}, "
+                f"discovered={discovered}, tracked={len(self.markets)}"
+            )
+
+        if discovered > 0:
+            for mkt in self.markets.values():
+                ttc = mkt.end_time - now
                 log.info(
-                    f"Poll #{self._poll_count}: {len(data)} total markets, "
-                    f"{btc_count} BTC, {fivemin_count} 5-min BTC, "
-                    f"{in_window_count} closing within 5min, "
-                    f"{discovered} tradeable. Tracked: {len(self.markets)}"
-                    + (f" | Samples: {sample_questions}" if sample_questions else "")
+                    f"  → {mkt.question[:60]} | slug={mkt.slug} | "
+                    f"Up={mkt.yes_price} Down={mkt.no_price} | closes in {ttc:.0f}s"
                 )
 
-            if discovered > 0:
-                for cid, mkt in self.markets.items():
-                    ttc = (mkt.end_time - now) / 1000
-                    log.info(f"  → {mkt.question[:60]} | strike={mkt.strike_price} | closes in {ttc:.0f}s")
-
-        except Exception as e:
-            log.error(f"Discovery error: {e}")
-
     async def run(self):
-        log.info("Market discovery started")
+        log.info("Market discovery started (slug-based, 5min BTC)")
         while True:
             await self.poll_once()
             await asyncio.sleep(self.config.MARKET_DISCOVERY_INTERVAL)

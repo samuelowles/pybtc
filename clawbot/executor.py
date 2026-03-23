@@ -59,11 +59,11 @@ class Executor:
             "condition_id": market.condition_id,
             "question": market.question,
             "spot": spot_price,
-            "strike": market.strike_price,
+            "slug": market.slug,
             "pm_price": current_price,
             "gap": round(gap, 4),
             "size_usdc": round(size_usdc, 2),
-            "time_to_close": f"{(market.end_time - time.time() * 1000) / 1000:.1f}s",
+            "time_to_close": f"{market.end_time - time.time():.1f}s",
             "dry_run": self.config.DRY_RUN,
         }
 
