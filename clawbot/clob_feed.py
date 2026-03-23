@@ -73,16 +73,24 @@ class ClobFeed:
     def _handle_message(self, raw: str):
         try:
             data = json.loads(raw)
-            asset_id = data.get("asset_id")
-            price = data.get("price")
-            if asset_id is None or price is None:
-                return
 
-            price_f = float(price)
-            for m in self.discovery.markets.values():
-                if m.yes_token_id == asset_id:
-                    m.yes_price = price_f
-                elif m.no_token_id == asset_id:
-                    m.no_price = price_f
+            # CLOB WS can send a list of updates or a single dict
+            items = data if isinstance(data, list) else [data]
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                asset_id = item.get("asset_id")
+                price = item.get("price")
+                if asset_id is None or price is None:
+                    continue
+
+                price_f = float(price)
+                for m in self.discovery.markets.values():
+                    if m.yes_token_id == asset_id:
+                        m.yes_price = price_f
+                    elif m.no_token_id == asset_id:
+                        m.no_price = price_f
         except (json.JSONDecodeError, ValueError):
             pass
+
