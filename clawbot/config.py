@@ -18,7 +18,7 @@ class Config:
     GAMMA_API_URL: str = "https://gamma-api.polymarket.com"
     CLOB_API_URL: str = "https://clob.polymarket.com"
     CLOB_WS_URL: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
-    BINANCE_WS_URL: str = "wss://stream.binance.com:9443/ws/btcusdt@ticker"
+    BINANCE_WS_URL: str = "wss://data-stream.binance.vision/ws/btcusdt@ticker"
     CTF_EXCHANGE_ADDRESS: str = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
     CHAIN_ID: int = 137
 
