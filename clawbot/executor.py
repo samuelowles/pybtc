@@ -129,9 +129,9 @@ class Executor:
             log_trade("live_order_submitted", **trade_info, result=str(result))
 
             order_id = result.get("orderID") if isinstance(result, dict) else None
-            if order_id:
-                estimated_profit = size_usdc * gap * 0.8
-                self.risk.record_trade(market.condition_id, estimated_profit, won=True)
+            matched = result.get("status") == "matched" if isinstance(result, dict) else False
+            if order_id and matched:
+                self.risk.record_trade(market.condition_id, -size_usdc, won=False)
             else:
                 self.risk.record_trade(market.condition_id, 0, won=False)
 
