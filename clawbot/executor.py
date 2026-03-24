@@ -26,18 +26,19 @@ class Executor:
         from py_clob_client.client import ClobClient
         from py_clob_client.clob_types import ApiCreds
 
+        creds = ApiCreds(
+            api_key=self.config.CLOB_API_KEY,
+            api_secret=self.config.CLOB_API_SECRET,
+            api_passphrase=self.config.CLOB_API_PASSPHRASE,
+        )
         client = ClobClient(
             host=self.config.CLOB_API_URL,
             key=self.config.PROXY_WALLET_KEY,
             chain_id=self.config.CHAIN_ID,
-            signature_type=2,
+            creds=creds,
+            signature_type=0,
             funder=self.config.FUNDER_ADDRESS,
         )
-        client.set_api_creds(ApiCreds(
-            api_key=self.config.CLOB_API_KEY,
-            api_secret=self.config.CLOB_API_SECRET,
-            api_passphrase=self.config.CLOB_API_PASSPHRASE,
-        ))
         self._clob_client = client
         return client
 
