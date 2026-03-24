@@ -82,7 +82,7 @@ class Executor:
             return
 
         try:
-            import math
+            from decimal import Decimal, ROUND_DOWN
             from py_clob_client.clob_types import OrderType
             from py_order_utils.builders import OrderBuilder as UtilsOrderBuilder
             from py_order_utils.signer import Signer as UtilsSigner
@@ -91,13 +91,18 @@ class Executor:
             client = self._get_client()
 
             price = round(current_price, 2)
-            price_cents = int(round(price * 100))
-            raw_size = size_usdc / price
-            size = math.floor(raw_size * 100) / 100
+            d_price = Decimal(str(price))
+            d_size_usdc = Decimal(str(size_usdc))
+            d_raw_size = d_size_usdc / d_price
+            d_size = d_raw_size.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
-            taker_amount = round(size * 1_000_000)
-            taker_amount = (taker_amount // 100) * 100
-            maker_amount = taker_amount * price_cents // 100
+            USDC_DECIMALS = Decimal("1000000")
+            d_taker = (d_size * USDC_DECIMALS).to_integral_value(rounding=ROUND_DOWN)
+            d_taker = (d_taker // 100) * 100
+            d_maker = (d_taker * d_price).to_integral_value(rounding=ROUND_DOWN)
+
+            taker_amount = int(d_taker)
+            maker_amount = int(d_maker)
 
             neg_risk = client.get_neg_risk(token_id)
             fee_rate = client.get_fee_rate_bps(token_id)
@@ -124,7 +129,7 @@ class Executor:
                 UtilsSigner(key=client.signer.private_key),
             )
             signed_order = order_builder.build_signed_order(data)
-            result = client.post_order(signed_order, OrderType.FOK)
+            result = client.post_order(signed_order, OrderType.GTC)
 
             log_trade("live_order_submitted", **trade_info, result=str(result))
 

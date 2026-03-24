@@ -9,11 +9,11 @@ from .risk import RiskManager
 log = logging.getLogger("clawbot.gap")
 
 # === STRATEGY 1: Window Delta (T-10s directional) ===
-WINDOW_DELTA_MIN_MOVE = 0.0001  # 0.01% minimum BTC move
+WINDOW_DELTA_MIN_MOVE = 0.0010  # 0.10% minimum BTC move (eliminates noise)
 EXECUTE_AT_SECS = 10  # fire at exactly T-10 seconds
 EXECUTE_WINDOW = 3  # execute between T-13 and T-10
 MIN_PM_PRICE = 0.10
-MAX_PM_PRICE = 0.65
+MAX_PM_PRICE = 0.45  # only trade when PM is clearly stale (< 45¢)
 GAP_THRESHOLD = 0.05
 
 # === STRATEGY 2: Spread Lock (risk-free arbitrage) ===
@@ -122,6 +122,11 @@ class GapEngine:
             if abs_delta < WINDOW_DELTA_MIN_MOVE:
                 continue
             if pm_price < MIN_PM_PRICE or pm_price > MAX_PM_PRICE:
+                if should_log and gap > 0:
+                    log.info(
+                        f"SKIP {side} | {market.slug} | pm={pm_price:.3f} "
+                        f"(outside {MIN_PM_PRICE}-{MAX_PM_PRICE}) | gap={gap:+.3f}"
+                    )
                 continue
 
             if gap > GAP_THRESHOLD and self.on_signal:
