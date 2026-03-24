@@ -36,7 +36,7 @@ class Executor:
             key=self.config.PROXY_WALLET_KEY,
             chain_id=self.config.CHAIN_ID,
             creds=creds,
-            signature_type=1,
+            signature_type=0,
             funder=self.config.FUNDER_ADDRESS,
         )
         self._clob_client = client
