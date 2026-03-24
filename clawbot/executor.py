@@ -124,7 +124,7 @@ class Executor:
                 UtilsSigner(key=client.signer.private_key),
             )
             signed_order = order_builder.build_signed_order(data)
-            result = client.post_order(signed_order, OrderType.FOK)
+            result = client.post_order(signed_order, OrderType.GTC)
 
             log_trade("live_order_submitted", **trade_info, result=str(result))
 
