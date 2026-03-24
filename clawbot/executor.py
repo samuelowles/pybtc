@@ -124,7 +124,7 @@ class Executor:
                 UtilsSigner(key=client.signer.private_key),
             )
             signed_order = order_builder.build_signed_order(data)
-            result = client.post_order(signed_order, OrderType.GTC)
+            result = client.post_order(signed_order, OrderType.FOK)
 
             log_trade("live_order_submitted", **trade_info, result=str(result))
 
@@ -139,3 +139,28 @@ class Executor:
             log.error(f"Trade failed: {e}")
             log_trade("trade_error", **trade_info, error=str(e))
             self.risk.record_trade(market.condition_id, 0, won=False)
+
+    def execute_spread(self, market, yes_price: float, no_price: float, spread_profit: float):
+        """Buy both YES and NO for risk-free spread lock."""
+        combined = yes_price + no_price
+        size_usdc = min(self.config.MAX_POSITION_USDC, 25.0)
+        half_size = size_usdc / 2
+
+        trade_info = {
+            "condition_id": market.condition_id,
+            "question": market.question,
+            "slug": market.slug,
+            "yes_price": yes_price,
+            "no_price": no_price,
+            "combined": round(combined, 4),
+            "spread_profit": round(spread_profit, 4),
+            "size_usdc": round(size_usdc, 2),
+            "dry_run": self.config.DRY_RUN,
+        }
+
+        if self.config.DRY_RUN:
+            profit = size_usdc * spread_profit
+            log_trade("dry_run_spread_lock", **trade_info, estimated_profit=round(profit, 2))
+            return
+
+        log.info(f"Spread lock would execute on {market.slug} — not yet implemented for live")

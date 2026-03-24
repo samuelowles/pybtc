@@ -35,6 +35,7 @@ class Daemon:
         self.executor = Executor(self.config, self.risk)
         self.gap_engine = GapEngine(self.config, self.discovery, self.risk)
         self.gap_engine.on_signal = self._on_trade_signal
+        self.gap_engine.on_spread_signal = self._on_spread_signal
 
         self.spot_feed = SpotFeed(self.config, on_price_update=self._on_spot_update)
         self.clob_feed = ClobFeed(self.config, self.discovery)
@@ -44,6 +45,9 @@ class Daemon:
 
     def _on_trade_signal(self, **kwargs):
         self.executor.execute(**kwargs)
+
+    def _on_spread_signal(self, **kwargs):
+        self.executor.execute_spread(**kwargs)
 
     async def _preflight_check(self):
         """Verify connectivity to Binance and Gamma API before entering main loop."""
