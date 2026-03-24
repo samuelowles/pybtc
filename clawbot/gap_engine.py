@@ -8,7 +8,7 @@ from .risk import RiskManager
 
 log = logging.getLogger("clawbot.gap")
 
-MIN_BTC_MOVE_PCT = 0.0003
+MIN_BTC_MOVE_PCT = 0.0001
 MIN_PM_PRICE = 0.20
 MAX_PM_PRICE = 0.65
 TRADE_WINDOW_SECS = 15
