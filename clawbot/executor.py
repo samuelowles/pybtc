@@ -91,13 +91,13 @@ class Executor:
             client = self._get_client()
 
             price = round(current_price, 2)
+            price_cents = int(round(price * 100))
             raw_size = size_usdc / price
             size = math.floor(raw_size * 100) / 100
 
-            maker_amount = round(round(size * price, 2) * 1_000_000)
             taker_amount = round(size * 1_000_000)
-            maker_amount = (maker_amount // 10000) * 10000
             taker_amount = (taker_amount // 100) * 100
+            maker_amount = taker_amount * price_cents // 100
 
             neg_risk = client.get_neg_risk(token_id)
             fee_rate = client.get_fee_rate_bps(token_id)
