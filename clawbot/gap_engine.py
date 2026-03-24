@@ -8,10 +8,11 @@ from .risk import RiskManager
 
 log = logging.getLogger("clawbot.gap")
 
-MIN_BTC_MOVE_PCT = 0.0010
-MIN_PM_PRICE = 0.05
-MAX_PM_PRICE = 0.70
-TRADE_WINDOW_SECS = 30
+MIN_BTC_MOVE_PCT = 0.0003
+MIN_PM_PRICE = 0.20
+MAX_PM_PRICE = 0.65
+TRADE_WINDOW_SECS = 15
+GAP_THRESHOLD = 0.05
 
 
 class GapEngine:
@@ -64,27 +65,25 @@ class GapEngine:
             expected_pm = min(0.95, 0.5 + (abs_move * 200 * (0.5 + time_factor * 0.5)))
             gap = expected_pm - pm_price
 
-            should_log = (now - self._last_log_time.get(cid, 0)) >= 5
+            should_log = (now - self._last_log_time.get(cid, 0)) >= 3
             if should_log:
                 self._last_log_time[cid] = now
                 log.info(
                     f"TRACKING {side} | {market.slug} | ttc={time_to_close:.0f}s | "
-                    f"ref=${ref_price:.2f} → spot=${spot_price:.2f} ({btc_move_pct*100:+.3f}%) | "
-                    f"pm_{side.lower()}={pm_price:.2f} vs expected={expected_pm:.2f} | "
-                    f"gap={gap:+.3f}"
+                    f"ref=${ref_price:.2f} spot=${spot_price:.2f} ({btc_move_pct*100:+.4f}%) | "
+                    f"pm={pm_price:.2f} exp={expected_pm:.2f} gap={gap:+.3f}"
                 )
 
             if abs_move < MIN_BTC_MOVE_PCT:
                 continue
-
             if pm_price < MIN_PM_PRICE or pm_price > MAX_PM_PRICE:
                 continue
 
-            if gap > self.config.GAP_THRESHOLD_PERCENT and self.on_signal:
+            if gap > GAP_THRESHOLD and self.on_signal:
                 log.info(
                     f"🎯 SIGNAL {side} | {market.slug} | gap={gap:.3f} | "
-                    f"pm={pm_price:.2f} expected={expected_pm:.2f} | "
-                    f"btc_move={btc_move_pct*100:+.3f}%"
+                    f"pm={pm_price:.2f} exp={expected_pm:.2f} | "
+                    f"btc={btc_move_pct*100:+.4f}% | ttc={time_to_close:.0f}s"
                 )
                 self.on_signal(
                     market=market,
