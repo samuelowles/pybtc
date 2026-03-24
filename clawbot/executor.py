@@ -83,16 +83,17 @@ class Executor:
 
         try:
             from py_clob_client.order_builder.constants import BUY
-            from py_clob_client.clob_types import OrderArgs, OrderType
+            from py_clob_client.clob_types import OrderArgs, OrderType, PartialCreateOrderOptions
 
             client = self._get_client()
             order_args = OrderArgs(
-                price=current_price,
-                size=size_usdc / current_price,
+                price=round(current_price, 2),
+                size=round(size_usdc / current_price, 2),
                 side=BUY,
                 token_id=token_id,
             )
-            signed_order = client.create_order(order_args)
+            opts = PartialCreateOrderOptions(tick_size="0.01", neg_risk=False)
+            signed_order = client.create_order(order_args, opts)
             result = client.post_order(signed_order, OrderType.FOK)
 
             log_trade("live_order_submitted", **trade_info, result=str(result))
