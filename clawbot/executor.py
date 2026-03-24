@@ -30,7 +30,7 @@ class Executor:
             host=self.config.CLOB_API_URL,
             key=self.config.PROXY_WALLET_KEY,
             chain_id=self.config.CHAIN_ID,
-            signature_type=1,
+            signature_type=0,
         )
         client.set_api_creds(ApiCreds(
             api_key=self.config.CLOB_API_KEY,
