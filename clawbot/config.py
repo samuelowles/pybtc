@@ -20,6 +20,7 @@ class Config:
     CLOB_WS_URL: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
     BINANCE_WS_URL: str = "wss://data-stream.binance.vision/ws/btcusdt@ticker"
     CTF_EXCHANGE_ADDRESS: str = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+    FUNDER_ADDRESS: str = ""
     CHAIN_ID: int = 137
 
     GAP_THRESHOLD_PERCENT: float = 0.15
@@ -42,6 +43,7 @@ class Config:
             MAX_POSITION_USDC=float(os.getenv("MAX_POSITION_USDC", "50")),
             MAX_DAILY_LOSS_USDC=float(os.getenv("MAX_DAILY_LOSS_USDC", "100")),
             COOLDOWN_SECONDS=float(os.getenv("COOLDOWN_SECONDS", "2")),
+            FUNDER_ADDRESS=os.getenv("FUNDER_ADDRESS", ""),
             DRY_RUN=os.getenv("DRY_RUN", "true").lower() != "false",
         )
         return cfg
